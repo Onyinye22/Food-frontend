@@ -25,7 +25,7 @@ jobs:
       # Step 3: Create S3 bucket (if not exists)
       - name: Create S3 bucket
         run: |
-          BUCKET_NAME=food-frontend-${{ github.actor }}
+          BUCKET_NAME=food-frontend-esther${{ github.actor }}
           aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null || \
           aws s3 mb s3://$BUCKET_NAME --region ${{ secrets.AWS_REGION }}
           echo "Bucket name: $BUCKET_NAME"
@@ -33,19 +33,19 @@ jobs:
       # Step 4: Deploy files to S3
       - name: Upload website files
         run: |
-          BUCKET_NAME=food-frontend-${{ github.actor }}
+          BUCKET_NAME=food-frontend-esther${{ github.actor }}
           aws s3 sync . s3://$BUCKET_NAME --delete --exclude ".git/*" --exclude ".github/*"
       
       # Step 5: Enable static website hosting
       - name: Enable static website hosting
         run: |
-          BUCKET_NAME=food-frontend-${{ github.actor }}
+          BUCKET_NAME=food-frontend-esther${{ github.actor }}
           aws s3 website s3://$BUCKET_NAME/ --index-document index.html --error-document index.html
 
       # Step 6: Make bucket public
       - name: Set public read policy
         run: |
-          BUCKET_NAME=food-frontend-${{ github.actor }}
+          BUCKET_NAME=food-frontend-esther${{ github.actor }}
           POLICY=$(cat <<EOF
           {
             "Version": "2012-10-17",
@@ -65,4 +65,4 @@ jobs:
       # Step 7: Display public website URL
       - name: Show website URL
         run: |
-          echo "✅ Website URL: http://food-frontend-${{ github.actor }}.s3-website-${{ secrets.AWS_REGION }}.amazonaws.com"
+          echo "✅ Website URL: http://food-frontend-esther${{ github.actor }}.s3-website-${{ secrets.AWS_REGION }}.amazonaws.com"
