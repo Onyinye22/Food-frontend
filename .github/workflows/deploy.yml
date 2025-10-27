@@ -3,66 +3,74 @@ name: Deploy static website to S3
 on:
   push:
     branches:
-      - main  # runs this workflow when you push to main branch
+      - main
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    # fallback: use secret if present, otherwise default to us-east-1
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+      BUCKET_BASE: food-frontend-esther
+
     steps:
-      # Step 1: Checkout your repository
-      - name: Checkout source code
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Step 2: Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      # Step 3: Create S3 bucket (if not exists)
-      - name: Create S3 bucket
+      - name: Determine bucket name
+        id: bucket
         run: |
-          BUCKET_NAME=food-frontend-esther${{ github.actor }}
-          aws s3api head-bucket --bucket $BUCKET_NAME 2>/dev/null || \
-          aws s3 mb s3://$BUCKET_NAME --region ${{ secrets.AWS_REGION }}
-          echo "Bucket name: $BUCKET_NAME"
+          # bucket name must be globally unique; append actor to reduce collisions
+          BUCKET_NAME="${{ env.BUCKET_BASE }}-${{ github.actor }}"
+          echo "bucket_name=$BUCKET_NAME" >> $GITHUB_OUTPUT
 
-      # Step 4: Deploy files to S3
-      - name: Upload website files
+      - name: Create bucket if missing
         run: |
-          BUCKET_NAME=food-frontend-esther${{ github.actor }}
-          aws s3 sync . s3://$BUCKET_NAME --delete --exclude ".git/*" --exclude ".github/*"
-      
-      # Step 5: Enable static website hosting
+          BUCKET=${{ steps.bucket.outputs.bucket_name }}
+          # head-bucket returns non-zero if missing
+          aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null || \
+            aws s3api create-bucket --bucket "$BUCKET" --create-bucket-configuration LocationConstraint=${AWS_REGION}
+          echo "Bucket ensured: $BUCKET"
+
+      - name: Upload website files to S3
+        run: |
+          BUCKET=${{ steps.bucket.outputs.bucket_name }}
+          aws s3 sync . s3://$BUCKET --delete --exclude ".git/*" --exclude ".github/*"
+
       - name: Enable static website hosting
         run: |
-          BUCKET_NAME=food-frontend-esther${{ github.actor }}
-          aws s3 website s3://$BUCKET_NAME/ --index-document index.html --error-document index.html
+          BUCKET=${{ steps.bucket.outputs.bucket_name }}
+          aws s3 website s3://$BUCKET/ --index-document index.html --error-document index.html
 
-      # Step 6: Make bucket public
-      - name: Set public read policy
+      - name: Set public bucket policy
         run: |
-          BUCKET_NAME=food-frontend-esther${{ github.actor }}
-          POLICY=$(cat <<EOF
+          BUCKET=${{ steps.bucket.outputs.bucket_name }}
+          cat > policy.json <<POLICY
           {
-            "Version": "2012-10-17",
-            "Statement": [{
-              "Sid": "PublicReadGetObject",
-              "Effect": "Allow",
-              "Principal": "*",
-              "Action": "s3:GetObject",
-              "Resource": "arn:aws:s3:::$BUCKET_NAME/*"
-            }]
+            "Version":"2012-10-17",
+            "Statement":[
+              {
+                "Sid":"PublicReadGetObject",
+                "Effect":"Allow",
+                "Principal":"*",
+                "Action":["s3:GetObject"],
+                "Resource":["arn:aws:s3:::$BUCKET/*"]
+              }
+            ]
           }
-          EOF
-          )
-          echo "$POLICY" > policy.json
-          aws s3api put-bucket-policy --bucket $BUCKET_NAME --policy file://policy.json
+          POLICY
+          aws s3api put-bucket-policy --bucket $BUCKET --policy file://policy.json
 
-      # Step 7: Display public website URL
       - name: Show website URL
         run: |
-          echo "✅ Website URL: http://food-frontend-esther${{ github.actor }}.s3-website-${{ secrets.AWS_REGION }}.amazonaws.com"
+          BUCKET=${{ steps.bucket.outputs.bucket_name }}
+          echo "Website: http://$BUCKET.s3-website-${AWS_REGION}.amazonaws.com"
